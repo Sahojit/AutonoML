@@ -83,11 +83,19 @@ _SIMPLE_QUESTION_STARTS = (
 
 
 def _is_simple_query(q: str) -> bool:
-    """True for short factual/definitional queries with no real-time intent."""
+    """True for short factual/definitional queries with no real-time, pipeline, or follow-up intent."""
+    q = q.strip()
+    if not q:
+        return True   # empty → trivially simple; direct LLM will handle gracefully
     word_count = len(q.split())
     if word_count > 10:
         return False
+    # Real-time, pipeline, or follow-up content disqualifies a "simple" query
     if any(kw in q for kw in _REALTIME_KW):
+        return False
+    if any(kw in q for kw in _PIPELINE_KW):
+        return False
+    if any(kw in q for kw in _FOLLOWUP_KW):
         return False
     return any(q.startswith(start) for start in _SIMPLE_QUESTION_STARTS) or word_count <= 5
 
