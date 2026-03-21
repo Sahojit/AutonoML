@@ -1,0 +1,65 @@
+version: "3.9"
+
+# Pull pre-built images from Docker Hub: sahojit/multi-agent-ai-api & sahojit/multi-agent-ai-frontend
+# To build locally instead: docker-compose up --build
+
+services:
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: multi_agent_ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  api:
+    image: sahojit/multi-agent-ai-api:latest
+    container_name: multi_agent_api
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      LLM_MODEL: llama3.2:3b
+      API_HOST: 0.0.0.0
+      API_PORT: "8000"
+      EMBEDDING_DEVICE: cpu
+      LOG_LEVEL: INFO
+      PLAN_MAX_STEPS: "4"
+      LLM_MAX_TOKENS: "1024"
+      EVALUATION_RETRY_LIMIT: "1"
+    volumes:
+      - chroma_data:/app/data/chroma_db
+      - api_logs:/app/logs
+    ports:
+      - "8000:8000"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  frontend:
+    image: sahojit/multi-agent-ai-frontend:latest
+    container_name: multi_agent_frontend
+    environment:
+      FRONTEND_API_URL: http://api:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  chroma_data:
+  api_logs:
