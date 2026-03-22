@@ -1,19 +1,3 @@
-"""
-QueryRouter - Adaptive Routing Layer
-Routes every query to the cheapest sufficient execution path:
-  DIRECT   -> single LLM call with history         (~1-3 s)
-  RAG      -> ChromaDB retrieval + LLM synthesis   (~2-5 s)
-  TOOL     -> web_search + LLM summarisation       (~3-8 s)
-  PIPELINE -> full 4-agent pipeline                (~15-60 s)
-
-Route selection:
-  1. Cache hit?           -> return cached (TTL 300 s)
-  2. Real-time keywords?  -> TOOL
-  3. Complex / ML / code? -> PIPELINE
-  4. Follow-up query?     -> RAG  (uses conversation history)
-  5. Memory context hit?  -> RAG
-  6. Default              -> DIRECT
-"""
 from __future__ import annotations
 
 import hashlib
@@ -33,20 +17,12 @@ from tools.tool_registry import tool_registry
 logger = logging.getLogger("multiagent.core.router")
 
 
-# ---------------------------------------------------------------------------
-# Route enum
-# ---------------------------------------------------------------------------
-
 class RouteType(str, Enum):
     DIRECT   = "direct"
     RAG      = "rag"
     TOOL     = "tool"
     PIPELINE = "pipeline"
 
-
-# ---------------------------------------------------------------------------
-# Keyword classifiers
-# ---------------------------------------------------------------------------
 
 _REALTIME_KW = {
     "latest", "today", "current", "now", "news", "live",
@@ -74,7 +50,6 @@ _FOLLOWUP_KW = {
     "previous", "earlier", "last time", "history",
 }
 
-# Short general-knowledge queries that should never hit RAG or pipeline
 _SIMPLE_QUESTION_STARTS = (
     "what is", "what are", "who is", "who are", "how does", "how do",
     "explain", "define", "tell me about", "what does", "why is", "why are",
@@ -83,14 +58,12 @@ _SIMPLE_QUESTION_STARTS = (
 
 
 def _is_simple_query(q: str) -> bool:
-    """True for short factual/definitional queries with no real-time, pipeline, or follow-up intent."""
     q = q.strip()
     if not q:
-        return True   # empty → trivially simple; direct LLM will handle gracefully
+        return True
     word_count = len(q.split())
     if word_count > 10:
         return False
-    # Real-time, pipeline, or follow-up content disqualifies a "simple" query
     if any(kw in q for kw in _REALTIME_KW):
         return False
     if any(kw in q for kw in _PIPELINE_KW):
@@ -105,36 +78,26 @@ def classify_route(
     has_memory_context: bool = False,
     has_conversation: bool = False,
 ) -> RouteType:
-    """Return the most appropriate RouteType for query."""
     q     = query.lower().strip()
     words = set(q.split())
 
-    # 1. Short general-knowledge queries always go direct — never block on memory context
     if _is_simple_query(q):
         return RouteType.DIRECT
 
-    # 2. Real-time / live-data queries
     if words & _REALTIME_KW or any(kw in q for kw in _REALTIME_KW):
         return RouteType.TOOL
 
-    # 3. Complex ML / code / data tasks
     if any(kw in q for kw in _PIPELINE_KW):
         return RouteType.PIPELINE
 
-    # 4. Follow-up or memory-reference queries
     if any(kw in q for kw in _FOLLOWUP_KW):
         return RouteType.RAG
 
     if has_conversation and has_memory_context:
-        # Only use RAG if *both* conditions are true — avoids spurious RAG on new sessions
         return RouteType.RAG
 
     return RouteType.DIRECT
 
-
-# ---------------------------------------------------------------------------
-# TTL result cache  (Step 10 - incremental execution / skip when cached)
-# ---------------------------------------------------------------------------
 
 @dataclass
 class _CacheEntry:
@@ -147,13 +110,6 @@ class _CacheEntry:
 
 
 class ResultCache:
-    """
-    In-memory TTL cache keyed by SHA-256(normalised_query + recent_history).
-
-    Only DIRECT and RAG results are cached.
-    PIPELINE results are never cached - they write to memory (side effects).
-    """
-
     def __init__(self, ttl: float = 300.0) -> None:
         self._store: Dict[str, _CacheEntry] = {}
         self._ttl = ttl
@@ -191,10 +147,6 @@ class ResultCache:
 
 _cache = ResultCache(ttl=300.0)
 
-
-# ---------------------------------------------------------------------------
-# Prompt templates  (Step 9 - full conversational memory injection)
-# ---------------------------------------------------------------------------
 
 def _direct_prompt(history: str, query: str) -> str:
     return (
@@ -238,34 +190,17 @@ def _tool_prompt(tool_output: str, history: str, query: str) -> str:
     )
 
 
-# ---------------------------------------------------------------------------
-# LLM call helper
-# ---------------------------------------------------------------------------
-
 def _llm_call(prompt: str, agent_type: str = "research") -> str:
     llm = get_llm(agent_type)
     try:
         resp = llm.invoke(prompt)
         return resp.content if hasattr(resp, "content") else str(resp)
-    except Exception as exc:               # noqa: BLE001
+    except Exception as exc:
         logger.warning("[Router] LLM call failed: %s", exc)
         return f"I encountered an error: {exc}"
 
 
-# ---------------------------------------------------------------------------
-# QueryRouter
-# ---------------------------------------------------------------------------
-
 class QueryRouter:
-    """
-    Central routing controller.
-
-    Public API
-    ----------
-    route(query, memory, session_id)            -> dict  (non-streaming)
-    route_stream(query, memory, session_id)     -> Generator[str, ...]  (streaming)
-    """
-
     def __init__(self) -> None:
         self._orchestrator = None
 
@@ -275,10 +210,6 @@ class QueryRouter:
             self._orchestrator = AgentOrchestrator()
         return self._orchestrator
 
-    # ------------------------------------------------------------------
-    # Non-streaming entry point
-    # ------------------------------------------------------------------
-
     def route(
         self,
         query: str,
@@ -286,20 +217,13 @@ class QueryRouter:
         session_id: str,
         force: Optional[RouteType] = None,
     ) -> Dict[str, Any]:
-        """
-        Route query and return a ChatResponse-compatible dict.
-
-        Step 10 — Check cache first; skip all agents if hit.
-        """
         ctx_key = memory.get_formatted_history(last_n=3)
 
-        # Cache check (skip pipeline entirely when hit)
         cached = _cache.get(query, ctx_key)
         if cached:
             logger.info("[Router] session=%s | CACHE HIT", session_id)
             return {**cached, "from_cache": True}
 
-        # Classify
         recent_docs = memory.retrieve_from_long_term(query, k=2)
         has_context = bool(recent_docs)
         has_convo   = bool(memory.get_conversation_history())
@@ -317,15 +241,10 @@ class QueryRouter:
         result["session_id"] = session_id
         result.setdefault("from_cache", False)
 
-        # Cache only cheap routes
         if route in (RouteType.DIRECT, RouteType.RAG):
             _cache.set(query, ctx_key, result)
 
         return result
-
-    # ------------------------------------------------------------------
-    # Streaming entry point  (Step 8)
-    # ------------------------------------------------------------------
 
     def route_stream(
         self,
@@ -333,17 +252,8 @@ class QueryRouter:
         memory: MemoryManager,
         session_id: str,
     ) -> Generator[str, None, None]:
-        """
-        Yield text chunks for real-time streaming.
-
-        DIRECT / RAG / TOOL: true token-by-token streaming from LLM.
-        PIPELINE: runs fully in a thread, then streams the final answer.
-
-        Each chunk is a raw string. Callers may wrap in SSE (data: ...\\n\\n).
-        """
         ctx_key = memory.get_formatted_history(last_n=3)
 
-        # Serve from cache instantly
         cached = _cache.get(query, ctx_key)
         if cached:
             answer = cached.get("final_answer", "")
@@ -362,18 +272,13 @@ class QueryRouter:
 
         if route == RouteType.PIPELINE:
             yield "__STATUS__:Running agent pipeline (this may take 15–60 s)...\n"
-            # Run synchronously in calling thread (executor handles this at API layer)
             result = self._run_pipeline(query, session_id)
             answer = result.get("final_answer", "No result returned.")
             for i in range(0, len(answer), 80):
                 yield answer[i:i + 80]
-                time.sleep(0.015)   # pacing for smooth UX
+                time.sleep(0.015)
         else:
             yield from self._stream_llm_chunks(route, query, memory)
-
-    # ------------------------------------------------------------------
-    # Route implementations
-    # ------------------------------------------------------------------
 
     def _dispatch(
         self,
@@ -391,7 +296,6 @@ class QueryRouter:
         return self._run_pipeline(query, session_id)
 
     def _run_direct(self, query: str, memory: MemoryManager) -> Dict[str, Any]:
-        """Single LLM call with full conversation history injected."""
         history = memory.get_formatted_history(last_n=8)
         answer  = _llm_call(_direct_prompt(history, query), agent_type="research")
         if not answer or not answer.strip():
@@ -406,11 +310,9 @@ class QueryRouter:
         }
 
     def _run_rag(self, query: str, memory: MemoryManager) -> Dict[str, Any]:
-        """ChromaDB retrieval + LLM synthesis. Falls back to direct if no docs found."""
         docs = memory.retrieve_from_long_term(
             query, k=settings.LONG_TERM_MEMORY_TOP_K
         )
-        # Fallback: no memory context → just answer directly
         if not docs:
             logger.info("[Router] RAG found no docs — falling back to DIRECT")
             return self._run_direct(query, memory)
@@ -437,7 +339,6 @@ class QueryRouter:
         }
 
     def _run_tool(self, query: str, memory: MemoryManager) -> Dict[str, Any]:
-        """Real-time web search + LLM summary. Falls back to direct LLM if search fails."""
         tool_res = tool_registry.execute("web_search", query=query, num_results=5)
 
         if not tool_res.success:
@@ -475,23 +376,11 @@ class QueryRouter:
         }
 
     def _run_pipeline(self, query: str, session_id: str) -> Dict[str, Any]:
-        """Full 4-agent orchestrated pipeline."""
         return self._get_orchestrator().run(query, session_id)
-
-    # ------------------------------------------------------------------
-    # LLM token streaming  (real-time, runs sync generator in thread)
-    # ------------------------------------------------------------------
 
     def _stream_llm_chunks(
         self, route: RouteType, query: str, memory: MemoryManager
     ) -> Generator[str, None, None]:
-        """
-        Yield tokens from the LLM's .stream() method.
-
-        The sync LangChain generator runs in a daemon thread; chunks are
-        passed to the main thread via a queue so FastAPI's async generator
-        can yield them without blocking the event loop.
-        """
         history = memory.get_formatted_history(last_n=8)
 
         if route == RouteType.RAG:
@@ -522,12 +411,11 @@ class QueryRouter:
                     if text:
                         q.put(text)
             except AttributeError:
-                # LLM doesn't support .stream() — fall back
                 resp = llm.invoke(prompt)
                 text = resp.content if hasattr(resp, "content") else str(resp)
                 for i in range(0, len(text), 80):
                     q.put(text[i:i + 80])
-            except Exception as exc:           # noqa: BLE001
+            except Exception as exc:
                 q.put(f"\n[Stream error: {exc}]")
             finally:
                 q.put(_DONE)
@@ -545,14 +433,9 @@ class QueryRouter:
             accumulated.append(chunk)
             yield chunk
 
-        # Store full response in memory
         memory.add_message("user", query)
         memory.add_message("assistant", "".join(accumulated))
 
-
-# ---------------------------------------------------------------------------
-# Module-level singleton
-# ---------------------------------------------------------------------------
 
 _router: Optional[QueryRouter] = None
 

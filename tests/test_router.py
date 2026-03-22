@@ -1,11 +1,3 @@
-"""
-Unit tests for core/query_router.py
-
-Covers:
-  - classify_route: all four route types + edge cases
-  - _is_simple_query: positive and negative cases
-  - ResultCache: TTL expiry, hit, miss, eviction
-"""
 import sys
 import os
 import time
@@ -19,10 +11,6 @@ from core.query_router import (
     _is_simple_query,
 )
 
-
-# ---------------------------------------------------------------------------
-# _is_simple_query
-# ---------------------------------------------------------------------------
 
 class TestIsSimpleQuery:
 
@@ -45,7 +33,6 @@ class TestIsSimpleQuery:
         assert _is_simple_query("how does gradient descent work") is True
 
     def test_very_short_query(self):
-        # 3 words — under the word limit with no special start required
         assert _is_simple_query("sorting algorithms overview") is True
 
     def test_long_query_is_not_simple(self):
@@ -59,7 +46,6 @@ class TestIsSimpleQuery:
         assert _is_simple_query("what is today weather") is False
 
     def test_empty_string_does_not_crash(self):
-        # should return True (0 words <= 5) without raising
         result = _is_simple_query("")
         assert isinstance(result, bool)
 
@@ -71,14 +57,9 @@ class TestIsSimpleQuery:
         assert _is_simple_query("python") is True
 
     def test_only_stopwords_does_not_crash(self):
-        # "the a is" — 3 words, no real-time kw → simple
         result = _is_simple_query("the a is")
         assert isinstance(result, bool)
 
-
-# ---------------------------------------------------------------------------
-# classify_route — DIRECT
-# ---------------------------------------------------------------------------
 
 class TestClassifyRouteDirect:
 
@@ -92,7 +73,6 @@ class TestClassifyRouteDirect:
         assert classify_route("define overfitting") == RouteType.DIRECT
 
     def test_simple_query_ignores_memory_context(self):
-        # Even with memory context and conversation, simple query → DIRECT
         assert classify_route(
             "what is python", has_memory_context=True, has_conversation=True
         ) == RouteType.DIRECT
@@ -111,10 +91,6 @@ class TestClassifyRouteDirect:
     def test_mixed_case_handled(self):
         assert classify_route("What IS JavaScript") == RouteType.DIRECT
 
-
-# ---------------------------------------------------------------------------
-# classify_route — TOOL
-# ---------------------------------------------------------------------------
 
 class TestClassifyRouteTool:
 
@@ -140,13 +116,8 @@ class TestClassifyRouteTool:
         assert classify_route("breaking news in tech") == RouteType.TOOL
 
     def test_realtime_overrides_simple_start(self):
-        # "what is" start but has "current" → TOOL wins
         assert classify_route("what is the current stock market index") == RouteType.TOOL
 
-
-# ---------------------------------------------------------------------------
-# classify_route — PIPELINE
-# ---------------------------------------------------------------------------
 
 class TestClassifyRoutePipeline:
 
@@ -175,10 +146,6 @@ class TestClassifyRoutePipeline:
         assert classify_route("generate a report from the dataset") == RouteType.PIPELINE
 
 
-# ---------------------------------------------------------------------------
-# classify_route — RAG
-# ---------------------------------------------------------------------------
-
 class TestClassifyRouteRag:
 
     def test_followup_improve_it(self):
@@ -197,7 +164,6 @@ class TestClassifyRouteRag:
         assert classify_route("do the same as last time") == RouteType.RAG
 
     def test_both_flags_true_no_keyword(self):
-        # Both flags set, no pipeline/follow-up keyword → RAG
         assert classify_route(
             "can you recap what we discussed",
             has_memory_context=True,
@@ -205,7 +171,6 @@ class TestClassifyRouteRag:
         ) == RouteType.RAG
 
     def test_only_memory_context_no_convo_is_direct(self):
-        # Only memory context, no conversation → DIRECT (not spurious RAG)
         assert classify_route(
             "how does backpropagation work",
             has_memory_context=True,
@@ -219,10 +184,6 @@ class TestClassifyRouteRag:
             has_conversation=True,
         ) == RouteType.DIRECT
 
-
-# ---------------------------------------------------------------------------
-# ResultCache
-# ---------------------------------------------------------------------------
 
 class TestResultCache:
 
@@ -242,14 +203,13 @@ class TestResultCache:
         cache = ResultCache(ttl=300)
         payload = {"final_answer": "answer"}
         cache.set("  What IS Python  ", "", payload)
-        # Should hit regardless of casing / leading spaces
         assert cache.get("what is python", "") is not None
 
     def test_miss_after_ttl_expiry(self):
-        cache = ResultCache(ttl=0.05)   # 50 ms TTL
+        cache = ResultCache(ttl=0.05)
         payload = {"final_answer": "answer"}
         cache.set("query", "", payload)
-        time.sleep(0.1)                 # wait for expiry
+        time.sleep(0.1)
         assert cache.get("query", "") is None
 
     def test_different_ctx_is_different_key(self):
