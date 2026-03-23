@@ -1,8 +1,6 @@
-"""
-FastAPI endpoint tests using TestClient and mocked AgentController.
-"""
+import sys
+import os
 
-import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from unittest.mock import MagicMock, patch
@@ -11,114 +9,128 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Fixtures
-# ──────────────────────────────────────────────────────────────────────────────
-
 MOCK_CHAT_RESULT = {
     "final_answer": "Here is your analysis result.",
     "session_id": "test-session-123",
-    "plan_summary": "Step 1 [RESEARCH]: Find docs\nStep 2 [EXECUTION]: Analyse",
+    "goal": "Analyse the iris dataset",
+    "plan": {"goal": "Analyse the iris dataset", "tasks": []},
     "step_records": [
         {
-            "step_number": 1,
-            "agent": "research",
-            "instruction": "Find docs",
+            "step_id": 1,
+            "step_type": "research",
+            "task": "Find docs",
             "status": "done",
-            "result_preview": "Found 3 documents",
-            "error": None,
-            "retries": 0,
+            "output_full": "Found 3 documents",
             "duration_s": 1.2,
+            "verdict": "",
+            "eval_score": 0.0,
+            "iterations": 1,
+            "feedback_applied": False,
         }
     ],
     "duration_s": 5.3,
+    "route": "pipeline",
+    "from_cache": False,
 }
 
 
 @pytest.fixture
 def client():
-    # Patch heavy dependencies before importing the app
     with patch("models.embedding_model.get_embedding_model"), \
          patch("memory.vector_store.chromadb.PersistentClient"), \
-         patch("orchestrator.agent_controller.AgentController") as mock_ctrl_cls:
+         patch("backend.api._get_orchestrator") as mock_get_orch:
 
-        mock_ctrl = MagicMock()
-        mock_ctrl.run.return_value = MOCK_CHAT_RESULT
-        mock_ctrl.get_history.return_value = [
-            {"role": "user", "content": "Hello", "timestamp": 0.0}
-        ]
-        mock_ctrl.add_document.return_value = ["doc-id-1"]
-        mock_ctrl_cls.return_value = mock_ctrl
+        mock_orch = MagicMock()
+        mock_orch.run.return_value = MOCK_CHAT_RESULT
+        mock_get_orch.return_value = mock_orch
 
         from backend.api import app
-        yield TestClient(app, raise_server_exceptions=True), mock_ctrl
+        yield TestClient(app, raise_server_exceptions=True), mock_orch
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Health & status
-# ──────────────────────────────────────────────────────────────────────────────
 
 class TestHealthEndpoints:
 
-    def test_health(self, client):
+    def test_health_returns_200(self, client):
         tc, _ = client
         resp = tc.get("/health")
         assert resp.status_code == 200
+
+    def test_health_status_ok(self, client):
+        tc, _ = client
+        resp = tc.get("/health")
         assert resp.json()["status"] == "ok"
 
-    def test_status(self, client):
+    def test_status_returns_200(self, client):
         tc, _ = client
         resp = tc.get("/status")
         assert resp.status_code == 200
-        data = resp.json()
+
+    def test_status_has_llm_model(self, client):
+        tc, _ = client
+        data = tc.get("/status").json()
         assert "llm_model" in data
+
+    def test_status_has_active_sessions(self, client):
+        tc, _ = client
+        data = tc.get("/status").json()
         assert "active_sessions" in data
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# /chat
-# ──────────────────────────────────────────────────────────────────────────────
-
 class TestChatEndpoint:
 
-    def test_chat_returns_answer(self, client):
-        tc, mock_ctrl = client
+    def test_chat_returns_200(self, client):
+        tc, _ = client
         resp = tc.post("/chat", json={"query": "Analyse the iris dataset"})
         assert resp.status_code == 200
-        data = resp.json()
-        assert data["final_answer"] == "Here is your analysis result."
-        assert "step_records" in data
 
-    def test_chat_creates_session(self, client):
+    def test_chat_final_answer_present(self, client):
+        tc, mock_orch = client
+        resp = tc.post("/chat", json={"query": "Analyse the iris dataset"})
+        assert resp.json()["final_answer"] == "Here is your analysis result."
+
+    def test_chat_step_records_present(self, client):
+        tc, _ = client
+        resp = tc.post("/chat", json={"query": "Analyse the iris dataset"})
+        assert "step_records" in resp.json()
+
+    def test_chat_session_id_returned(self, client):
         tc, _ = client
         resp = tc.post("/chat", json={"query": "Hello"})
-        assert resp.status_code == 200
         assert resp.json()["session_id"] is not None
 
-    def test_chat_with_provided_session_id(self, client):
+    def test_chat_with_explicit_session_id(self, client):
         tc, _ = client
-        resp = tc.post("/chat", json={"query": "Hello", "session_id": "my-session"})
+        resp = tc.post("/chat", json={"query": "Hello", "session_id": "my-sess"})
         assert resp.status_code == 200
 
     def test_chat_empty_query_rejected(self, client):
         tc, _ = client
         resp = tc.post("/chat", json={"query": ""})
-        assert resp.status_code == 422  # Pydantic validation error
+        assert resp.status_code == 422
 
+    def test_chat_missing_query_rejected(self, client):
+        tc, _ = client
+        resp = tc.post("/chat", json={})
+        assert resp.status_code == 422
 
-# ──────────────────────────────────────────────────────────────────────────────
-# /memory
-# ──────────────────────────────────────────────────────────────────────────────
+    def test_chat_orchestrator_called_with_query(self, client):
+        tc, mock_orch = client
+        tc.post("/chat", json={"query": "Train a classifier"})
+        mock_orch.run.assert_called_once()
+        call_args = mock_orch.run.call_args
+        assert "Train a classifier" in call_args[0]
+
 
 class TestMemoryEndpoint:
 
-    def test_ingest_document(self, client):
-        tc, mock_ctrl = client
-        resp = tc.post(
-            "/memory",
-            json={"text": "Some knowledge content", "metadata": {"source": "test"}},
-        )
+    def test_ingest_returns_200(self, client):
+        tc, _ = client
+        resp = tc.post("/memory", json={"text": "Some knowledge content"})
         assert resp.status_code == 200
+
+    def test_ingest_returns_doc_ids(self, client):
+        tc, _ = client
+        resp = tc.post("/memory", json={"text": "Some knowledge content"})
         assert "doc_ids" in resp.json()
 
     def test_ingest_empty_text_rejected(self, client):
@@ -126,24 +138,36 @@ class TestMemoryEndpoint:
         resp = tc.post("/memory", json={"text": ""})
         assert resp.status_code == 422
 
+    def test_ingest_with_metadata(self, client):
+        tc, _ = client
+        resp = tc.post(
+            "/memory",
+            json={"text": "Knowledge", "metadata": {"source": "test_doc"}},
+        )
+        assert resp.status_code == 200
 
-# ──────────────────────────────────────────────────────────────────────────────
-# /history
-# ──────────────────────────────────────────────────────────────────────────────
 
 class TestHistoryEndpoint:
 
-    def test_history_not_found(self, client):
+    def test_history_unknown_session_returns_404(self, client):
         tc, _ = client
-        resp = tc.get("/history?session_id=nonexistent-session")
+        resp = tc.get("/history?session_id=no-such-session")
         assert resp.status_code == 404
 
-    def test_history_after_chat(self, client):
-        tc, mock_ctrl = client
-        # First create the session via /chat
-        tc.post("/chat", json={"query": "Hello", "session_id": "hist-session"})
-        resp = tc.get("/history?session_id=hist-session")
+    def test_history_after_chat_returns_200(self, client):
+        tc, _ = client
+        tc.post("/chat", json={"query": "Hello", "session_id": "hist-sess"})
+        resp = tc.get("/history?session_id=hist-sess")
         assert resp.status_code == 200
-        data = resp.json()
-        assert data["session_id"] == "hist-session"
+
+    def test_history_response_has_session_id(self, client):
+        tc, _ = client
+        tc.post("/chat", json={"query": "Hello", "session_id": "hist-sess-2"})
+        data = tc.get("/history?session_id=hist-sess-2").json()
+        assert data["session_id"] == "hist-sess-2"
+
+    def test_history_response_has_messages(self, client):
+        tc, _ = client
+        tc.post("/chat", json={"query": "Hello", "session_id": "hist-sess-3"})
+        data = tc.get("/history?session_id=hist-sess-3").json()
         assert "messages" in data
