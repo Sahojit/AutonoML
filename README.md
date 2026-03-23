@@ -289,3 +289,4 @@ Create a SQLite table of employees and query the top 5 salaries by department
 | UI | Streamlit |
 | Data | SQLAlchemy, pandas, scikit-learn |
 | Python | 3.9+ |
+# Multi-Agent AI System
