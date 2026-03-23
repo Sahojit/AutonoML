@@ -1,8 +1,6 @@
-"""
-Agent unit tests — use mocked LLMs and vector stores so they run without Ollama.
-"""
+import sys
+import os
 
-import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import json
@@ -10,135 +8,163 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agents.planner_agent import PlannerAgent, Plan
-from agents.evaluation_agent import EvaluationAgent, EvaluationResult
-from memory.memory_manager import MemoryManager, AgentContext
+from agents.planner_agent import PlannerAgent, PlannerOutput
+from agents.evaluation_agent import EvaluationAgent
+from memory.memory_manager import AgentContext
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Fixtures
-# ──────────────────────────────────────────────────────────────────────────────
-
-@pytest.fixture
-def mock_memory(tmp_path):
-    with patch("memory.vector_store.get_embedding_model"), \
-         patch("chromadb.PersistentClient"):
-        mem = MagicMock(spec=MemoryManager)
-        mem.get_formatted_history.return_value = ""
-        mem.add_message = MagicMock()
-        mem.update_context = MagicMock()
-        mem.store_in_long_term = MagicMock(return_value=["id-1"])
-        ctx = AgentContext(user_query="test query")
-        mem.get_context.return_value = ctx
-        return mem
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# PlannerAgent tests
-# ──────────────────────────────────────────────────────────────────────────────
 
 class TestPlannerAgent:
 
-    VALID_JSON_PLAN = json.dumps([
-        {"step_number": 1, "agent": "research", "instruction": "Find docs", "depends_on": []},
-        {"step_number": 2, "agent": "execution", "instruction": "Run analysis", "depends_on": [1]},
-        {"step_number": 3, "agent": "evaluation", "instruction": "Validate", "depends_on": [2]},
-    ])
+    VALID_PLAN = json.dumps({
+        "goal": "Analyse the iris dataset",
+        "tasks": [
+            {"id": 1, "type": "research",   "task": "Find docs",      "depends_on": []},
+            {"id": 2, "type": "execution",  "task": "Run analysis",   "depends_on": [1]},
+            {"id": 3, "type": "evaluation", "task": "Validate result", "depends_on": [2]},
+        ],
+    })
 
-    @patch("agents.planner_agent.get_llm")
-    def test_plan_parsed_correctly(self, mock_get_llm, mock_memory):
-        mock_llm = MagicMock()
-        mock_llm.invoke.return_value = self.VALID_JSON_PLAN
-        mock_chain = MagicMock()
-        mock_chain.invoke.return_value = self.VALID_JSON_PLAN
-        mock_get_llm.return_value = mock_llm
+    @pytest.fixture
+    def planner(self):
+        with patch("agents.planner_agent.get_llm"):
+            return PlannerAgent()
 
-        with patch("agents.planner_agent.PLANNER_PROMPT.__or__", return_value=mock_chain):
-            agent = PlannerAgent()
-            agent._chain = mock_chain
-            plan = agent.run("Analyse the iris dataset", mock_memory)
+    def test_parse_returns_planner_output(self, planner):
+        plan = planner._parse_output(self.VALID_PLAN, "analyse iris")
+        assert isinstance(plan, PlannerOutput)
 
-        assert isinstance(plan, Plan)
-        assert len(plan.steps) == 3
-        assert plan.steps[0].agent == "research"
-        assert plan.steps[1].agent == "execution"
-        assert plan.steps[2].agent == "evaluation"
+    def test_parse_goal(self, planner):
+        plan = planner._parse_output(self.VALID_PLAN, "analyse iris")
+        assert plan.goal == "Analyse the iris dataset"
 
-    @patch("agents.planner_agent.get_llm")
-    def test_fallback_plan_on_invalid_json(self, mock_get_llm, mock_memory):
-        mock_chain = MagicMock()
-        mock_chain.invoke.return_value = "This is not JSON at all."
-        mock_get_llm.return_value = MagicMock()
+    def test_parse_task_count(self, planner):
+        plan = planner._parse_output(self.VALID_PLAN, "analyse iris")
+        assert len(plan.tasks) == 3
 
-        agent = PlannerAgent()
-        agent._chain = mock_chain
-        plan = agent.run("Do something", mock_memory)
+    def test_parse_task_types(self, planner):
+        plan = planner._parse_output(self.VALID_PLAN, "analyse iris")
+        types = [t.type for t in plan.tasks]
+        assert types == ["research", "execution", "evaluation"]
 
-        assert isinstance(plan, Plan)
-        assert len(plan.steps) >= 2  # fallback has at least 3 steps
+    def test_parse_task_ids(self, planner):
+        plan = planner._parse_output(self.VALID_PLAN, "analyse iris")
+        assert [t.id for t in plan.tasks] == [1, 2, 3]
 
+    def test_parse_dependencies(self, planner):
+        plan = planner._parse_output(self.VALID_PLAN, "analyse iris")
+        assert plan.tasks[0].depends_on == []
+        assert plan.tasks[1].depends_on == [1]
+        assert plan.tasks[2].depends_on == [2]
 
-# ──────────────────────────────────────────────────────────────────────────────
-# EvaluationAgent tests
-# ──────────────────────────────────────────────────────────────────────────────
+    def test_fallback_on_empty_string(self, planner):
+        plan = planner._parse_output("", "do something")
+        assert isinstance(plan, PlannerOutput)
+        assert len(plan.tasks) == 3
+
+    def test_fallback_on_invalid_json(self, planner):
+        plan = planner._parse_output("{not json}", "do something")
+        assert len(plan.tasks) == 3
+
+    def test_fallback_task_types(self, planner):
+        plan = planner._fallback("run the script")
+        types = [t.type for t in plan.tasks]
+        assert "research" in types
+        assert "execution" in types
+        assert "evaluation" in types
+
+    def test_independent_tasks(self, planner):
+        raw = json.dumps({
+            "goal": "Parallel work",
+            "tasks": [
+                {"id": 1, "type": "research", "task": "A", "depends_on": []},
+                {"id": 2, "type": "research", "task": "B", "depends_on": []},
+                {"id": 3, "type": "execution", "task": "C", "depends_on": [1, 2]},
+            ],
+        })
+        plan = planner._parse_output(raw, "parallel")
+        assert len(plan.independent_tasks()) == 2
+
+    def test_to_dict_has_tasks_key(self, planner):
+        plan = planner._parse_output(self.VALID_PLAN, "analyse iris")
+        d = plan.to_dict()
+        assert "tasks" in d
+        assert "goal" in d
+
 
 class TestEvaluationAgent:
 
-    PASS_VERDICT = json.dumps({
+    PASS_JSON = json.dumps({
         "verdict": "PASS",
-        "score": 0.95,
+        "score": 0.92,
         "issues": [],
         "suggestions": [],
-        "corrected_output": "",
     })
 
-    RETRY_VERDICT = json.dumps({
-        "verdict": "RETRY",
-        "score": 0.60,
-        "issues": ["Missing error handling"],
-        "suggestions": ["Add try/except block"],
-        "corrected_output": "try:\n    pass\nexcept Exception:\n    pass",
+    FAIL_JSON = json.dumps({
+        "verdict": "FAIL",
+        "score": 0.55,
+        "issues": ["Missing metric"],
+        "suggestions": ["Add accuracy score"],
     })
 
-    @patch("agents.evaluation_agent.get_llm")
-    def test_pass_verdict(self, mock_get_llm, mock_memory):
-        mock_chain = MagicMock()
-        mock_chain.invoke.return_value = self.PASS_VERDICT
-        mock_get_llm.return_value = MagicMock()
+    @pytest.fixture
+    def evaluator(self):
+        with patch("agents.evaluation_agent.get_llm"):
+            return EvaluationAgent()
 
-        agent = EvaluationAgent()
-        agent._chain = mock_chain
-        result = agent.run("Run analysis", "Output here", mock_memory)
+    @pytest.fixture
+    def mock_memory(self):
+        mem = MagicMock()
+        mem.add_message = MagicMock()
+        mem.update_context = MagicMock()
+        ctx = AgentContext(user_query="test")
+        mem.get_context.return_value = ctx
+        return mem
 
-        assert isinstance(result, EvaluationResult)
-        assert result.verdict == "PASS"
-        assert result.score == 0.95
-        assert result.passed() is True
+    def _run(self, evaluator, mock_memory, llm_json, instruction, output):
+        chain = MagicMock()
+        chain.invoke.return_value = MagicMock(content=llm_json)
+        evaluator._chain = chain
+        return evaluator.run(instruction, output, mock_memory)
 
-    @patch("agents.evaluation_agent.get_llm")
-    def test_retry_verdict(self, mock_get_llm, mock_memory):
-        mock_chain = MagicMock()
-        mock_chain.invoke.return_value = self.RETRY_VERDICT
-        mock_get_llm.return_value = MagicMock()
+    def test_pass_verdict_returned(self, evaluator, mock_memory):
+        msg = self._run(evaluator, mock_memory, self.PASS_JSON,
+                        "explain recursion", "Recursion calls itself.")
+        assert msg.metadata["verdict"] == "PASS"
 
-        agent = EvaluationAgent()
-        agent._chain = mock_chain
-        result = agent.run("Run analysis", "Incomplete output", mock_memory)
+    def test_fail_verdict_returned(self, evaluator, mock_memory):
+        msg = self._run(evaluator, mock_memory, self.FAIL_JSON,
+                        "explain recursion", "Recursion calls itself.")
+        assert msg.metadata["verdict"] == "FAIL"
 
-        assert result.verdict == "RETRY"
-        assert result.passed() is False
-        assert len(result.issues) == 1
-        assert result.corrected_output != ""
+    def test_score_preserved(self, evaluator, mock_memory):
+        msg = self._run(evaluator, mock_memory, self.PASS_JSON,
+                        "explain recursion", "Recursion calls itself.")
+        assert msg.metadata["score"] == 0.92
 
-    @patch("agents.evaluation_agent.get_llm")
-    def test_default_pass_on_empty_response(self, mock_get_llm, mock_memory):
-        mock_chain = MagicMock()
-        mock_chain.invoke.return_value = ""
-        mock_get_llm.return_value = MagicMock()
+    def test_issues_list_preserved(self, evaluator, mock_memory):
+        msg = self._run(evaluator, mock_memory, self.FAIL_JSON,
+                        "explain recursion", "Recursion calls itself.")
+        assert "Missing metric" in msg.metadata["issues"]
 
-        agent = EvaluationAgent()
-        agent._chain = mock_chain
-        result = agent.run("instruction", "output", mock_memory)
+    def test_empty_llm_response_defaults_pass(self, evaluator, mock_memory):
+        msg = self._run(evaluator, mock_memory, "",
+                        "explain recursion", "Recursion calls itself.")
+        assert msg.metadata["verdict"] == "PASS"
 
-        # Should fall back to PASS rather than crashing
-        assert result.verdict == "PASS"
+    def test_malformed_json_defaults_pass(self, evaluator, mock_memory):
+        msg = self._run(evaluator, mock_memory, "not json",
+                        "explain recursion", "Recursion calls itself.")
+        assert msg.metadata["verdict"] == "PASS"
+
+    def test_programmatic_fail_overrides_llm_pass(self, evaluator, mock_memory):
+        msg = self._run(evaluator, mock_memory, self.PASS_JSON,
+                        "train a classifier", "accuracy: 1.0",
+                        )
+        assert msg.metadata["verdict"] == "FAIL"
+
+    def test_duration_in_metadata(self, evaluator, mock_memory):
+        msg = self._run(evaluator, mock_memory, self.PASS_JSON,
+                        "explain recursion", "Recursion calls itself.")
+        assert "duration_s" in msg.metadata
+        assert msg.metadata["duration_s"] >= 0
