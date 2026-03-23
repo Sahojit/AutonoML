@@ -1,4 +1,4 @@
-# Multi-Agent AI System v2.0.0
+# Multi-Agent AI System v2.2.0
 
 A production-grade autonomous multi-agent AI platform built with Python, Ollama (Llama 3), ChromaDB, FastAPI, and Streamlit.
 
