@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment variables
+.env
+.env.*
+*.env
+
+# Data & persistent storage
+data/chroma_db/
+data/*.db
+data/*.sqlite
+*.db
+*.sqlite3
+
+# Logs
+logs/
+*.log
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# MyPy / type checkers
+.mypy_cache/
+.dmypy.json
+
+# Ruff / linters
+.ruff_cache/
+
+# Docker
+*.override.yml
+CLAUDE.md
