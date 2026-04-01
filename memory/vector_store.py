@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 import chromadb
 from chromadb.config import Settings as ChromaSettings
 from langchain.docstore.document import Document
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 
 from config.settings import settings
 from models.embedding_model import get_embedding_model
