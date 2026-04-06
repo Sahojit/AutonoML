@@ -1,5 +1,10 @@
 # Multi-Agent AI System v2.2.0
 
+![CI](https://github.com/Sahojit/AutonoML/actions/workflows/ci.yml/badge.svg)
+![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11-blue)
+![Tests](https://img.shields.io/badge/tests-287%20passing-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-blue)
+
 A production-grade autonomous multi-agent AI platform built with Python, Ollama (Llama 3), ChromaDB, FastAPI, and Streamlit.
 
 ---
