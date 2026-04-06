@@ -1,0 +1,11 @@
+[tool.ruff]
+line-length = 100
+exclude = [".venv", "__pycache__", "data", "logs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501", "F401"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
