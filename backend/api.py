@@ -21,10 +21,13 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 sys.path.insert(0, ".")
 
@@ -49,6 +52,8 @@ logger = logging.getLogger("multiagent.api")
 _sessions: Dict[str, MemoryManager] = {}
 _orchestrator: Optional[AgentOrchestrator] = None
 _thread_pool = ThreadPoolExecutor(max_workers=4)
+
+limiter = Limiter(key_func=get_remote_address)
 
 
 def _get_orchestrator() -> AgentOrchestrator:
@@ -94,6 +99,9 @@ app = FastAPI(
     description="Production-grade Multi-Agent AI System API",
     lifespan=lifespan,
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -182,22 +190,22 @@ async def status() -> Dict[str, Any]:
 
 
 @app.post("/chat", response_model=ChatResponse, tags=["Agent"])
-async def chat(request: ChatRequest) -> ChatResponse:
+@limiter.limit("10/minute")
+async def chat(request: Request, body: ChatRequest) -> ChatResponse:
     """
     Execute the full multi-agent pipeline:
     Planner → Research (parallel) → Execution → Evaluation (loop) → Answer.
     """
-    session_id = request.session_id or str(uuid.uuid4())
-    logger.info("POST /chat | session=%s | query='%s'", session_id, request.query[:80])
+    session_id = body.session_id or str(uuid.uuid4())
+    logger.info("POST /chat | session=%s | query='%s'", session_id, body.query[:80])
 
-    # Ensure session memory is registered
     _get_or_create_memory(session_id)
 
     try:
         orch = _get_orchestrator()
         loop = asyncio.get_event_loop()
         result: Dict[str, Any] = await loop.run_in_executor(
-            _thread_pool, orch.run, request.query, session_id
+            _thread_pool, orch.run, body.query, session_id
         )
         return ChatResponse(**result)
     except Exception as exc:               # noqa: BLE001
@@ -206,7 +214,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
 
 @app.post("/chat/smart", response_model=ChatResponse, tags=["Agent"])
-async def chat_smart(request: ChatRequest) -> ChatResponse:
+@limiter.limit("10/minute")
+async def chat_smart(request: Request, body: ChatRequest) -> ChatResponse:
     """
     Adaptive routing endpoint (Step 6 — Smart Routing).
 
@@ -218,8 +227,8 @@ async def chat_smart(request: ChatRequest) -> ChatResponse:
 
     Returns the same ChatResponse schema as /chat.
     """
-    session_id = request.session_id or str(uuid.uuid4())
-    logger.info("POST /chat/smart | session=%s | query='%s'", session_id, request.query[:80])
+    session_id = body.session_id or str(uuid.uuid4())
+    logger.info("POST /chat/smart | session=%s | query='%s'", session_id, body.query[:80])
 
     memory = _get_or_create_memory(session_id)
     router = get_router()
@@ -228,10 +237,10 @@ async def chat_smart(request: ChatRequest) -> ChatResponse:
         loop   = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             _thread_pool,
-            lambda: router.route(request.query, memory, session_id),
+            lambda: router.route(body.query, memory, session_id),
         )
         # Fill missing ChatResponse fields with defaults
-        result.setdefault("goal",         request.query)
+        result.setdefault("goal",         body.query)
         result.setdefault("plan",         {})
         result.setdefault("step_records", [])
         result.setdefault("route",        "direct")
@@ -244,7 +253,8 @@ async def chat_smart(request: ChatRequest) -> ChatResponse:
 
 
 @app.post("/chat/stream", tags=["Agent"])
-async def chat_stream(request: ChatRequest) -> StreamingResponse:
+@limiter.limit("10/minute")
+async def chat_stream(request: Request, body: ChatRequest) -> StreamingResponse:
     """
     Streaming endpoint (Step 8 — Real-time streaming responses).
 
@@ -256,8 +266,8 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
     In Streamlit, consume with requests stream=True + iter_lines().
     In a browser, use EventSource or fetch with ReadableStream.
     """
-    session_id = request.session_id or str(uuid.uuid4())
-    logger.info("POST /chat/stream | session=%s | query='%s'", session_id, request.query[:80])
+    session_id = body.session_id or str(uuid.uuid4())
+    logger.info("POST /chat/stream | session=%s | query='%s'", session_id, body.query[:80])
 
     memory = _get_or_create_memory(session_id)
     router = get_router()
@@ -271,7 +281,7 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
 
         def _run_stream():
             try:
-                for chunk in router.route_stream(request.query, memory, session_id):
+                for chunk in router.route_stream(body.query, memory, session_id):
                     q.put(chunk)
             except Exception as exc:       # noqa: BLE001
                 q.put(f"\n[Stream error: {exc}]")
