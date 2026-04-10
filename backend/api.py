@@ -32,6 +32,7 @@ from slowapi.util import get_remote_address
 sys.path.insert(0, ".")
 
 from agents.base_agent import configure_logging
+from backend.session_store import get_session_store
 from config.settings import settings
 from core.query_router import RouteType, classify_route, get_router
 from memory.memory_manager import MemoryManager
@@ -49,7 +50,6 @@ logger = logging.getLogger("multiagent.api")
 # Session registry (in-process; swap with Redis for multi-worker deployments)
 # ---------------------------------------------------------------------------
 
-_sessions: Dict[str, MemoryManager] = {}
 _orchestrator: Optional[AgentOrchestrator] = None
 _thread_pool = ThreadPoolExecutor(max_workers=4)
 
@@ -64,10 +64,7 @@ def _get_orchestrator() -> AgentOrchestrator:
 
 
 def _get_or_create_memory(session_id: str) -> MemoryManager:
-    if session_id not in _sessions:
-        _sessions[session_id] = MemoryManager(session_id=session_id)
-        logger.info("New session: %s (total=%d)", session_id, len(_sessions))
-    return _sessions[session_id]
+    return get_session_store().get_or_create(session_id)
 
 
 # ---------------------------------------------------------------------------
@@ -82,9 +79,12 @@ async def lifespan(app: FastAPI):
     yield
     logger.info("API shutting down — flushing sessions…")
     _thread_pool.shutdown(wait=False)
-    for mem in _sessions.values():
+    store = get_session_store()
+    for sid in store.all_ids():
         try:
-            mem.save_session_to_long_term()
+            mem = store.get(sid)
+            if mem:
+                mem.save_session_to_long_term()
         except Exception:                  # noqa: BLE001
             pass
 
@@ -182,7 +182,7 @@ async def status() -> Dict[str, Any]:
         "llm_provider": settings.LLM_PROVIDER,
         "llm_model": settings.LLM_MODEL,
         "embedding_model": settings.EMBEDDING_MODEL,
-        "active_sessions": len(_sessions),
+        "active_sessions": get_session_store().count(),
         "vector_store_docs": doc_count,
         "max_iterations": settings.MAX_AGENT_ITERATIONS,
         "parallel_research": settings.PARALLEL_RESEARCH,
@@ -334,18 +334,17 @@ async def store_memory(request: MemoryRequest) -> MemoryResponse:
 async def get_history(
     session_id: str = Query(..., description="Session ID"),
 ) -> HistoryResponse:
-    if session_id not in _sessions:
+    mem = get_session_store().get(session_id)
+    if mem is None:
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
-    msgs = _sessions[session_id].get_conversation_history()
+    msgs = mem.get_conversation_history()
     return HistoryResponse(session_id=session_id, messages=msgs, count=len(msgs))
 
 
 @app.delete("/session/{session_id}", tags=["System"])
 async def delete_session(session_id: str) -> Dict[str, str]:
-    if session_id not in _sessions:
+    if not get_session_store().delete(session_id):
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
-    del _sessions[session_id]
-    logger.info("Session %s deleted.", session_id)
     return {"message": f"Session '{session_id}' deleted."}
 
 

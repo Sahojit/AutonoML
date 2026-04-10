@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     API_WORKERS: int = 1
     CORS_ORIGINS: List[str] = ["*"]
 
+    # ─── Session Store ────────────────────────────────────────────────────────
+    REDIS_URL: Optional[str] = None          # e.g. redis://localhost:6379/0
+    SESSION_TTL_SECONDS: int = 3600          # 1 hour; used by Redis backend
+
     # ─── Frontend ─────────────────────────────────────────────────────────────
     FRONTEND_API_URL: str = "http://localhost:8000"
 
