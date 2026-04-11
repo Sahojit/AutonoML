@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 
 from .dataset_analyzer import DatasetAnalyzer, get_dataset_analyzer
+from .file_reader import FileReaderTool, get_file_reader
 from .python_executor import PythonExecutor, get_python_executor
 from .sql_tool import SQLQueryTool, get_sql_tool
 from .tool_registry import ToolRegistry, ToolResult, tool_registry
@@ -78,6 +79,24 @@ def _register_all() -> None:
         },
     )
 
+    # ── FileReaderTool ───────────────────────────────────────────────────
+    reader = get_file_reader()
+    tool_registry.register_tool(
+        name="file_read",
+        description=(
+            "Read a text or PDF file and return its content as a string. "
+            "Supports .txt, .md, .csv, .json, .py, .log, .pdf. "
+            "Use path='<filepath>', max_chars=20000 (optional), "
+            "chunk_index=N (optional, for large files)."
+        ),
+        func=reader.read,
+        parameters={
+            "path": "str",
+            "max_chars": "int (optional, default 20000)",
+            "chunk_index": "int (optional)",
+        },
+    )
+
     logger.info("Tool registry ready: %s", tool_registry.list_tool_names())
 
 
@@ -91,11 +110,13 @@ __all__ = [
     "get_web_search",
     "get_sql_tool",
     "get_dataset_analyzer",
+    "get_file_reader",
     # Classes
     "ToolRegistry",
     "ToolResult",
     "PythonExecutor",
     "WebSearchTool",
     "SQLQueryTool",
+    "FileReaderTool",
     "DatasetAnalyzer",
 ]
