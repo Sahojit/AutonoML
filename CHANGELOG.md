@@ -1,5 +1,25 @@
 # Changelog
 
+## [v2.3.0] - 2026-04-12
+
+### Added
+- `FileReaderTool` (`file_read`): reads .txt .md .csv .json .py .log .pdf with chunking support
+- Pluggable `SessionStore`: `InMemorySessionStore` (default) + `RedisSessionStore` for multi-worker persistence
+- LangSmith tracing hook: set `LANGCHAIN_TRACING_V2=true` + `LANGCHAIN_API_KEY` to enable
+- `AgentController`: refactored to current `PlannerOutput` and `TaskManager` API, exported from `orchestrator/__init__.py`
+- Rate limiting on `/chat`, `/chat/smart`, `/chat/stream` via slowapi (10 req/min per IP)
+- GitHub Actions CI workflow (lint + test on push/PR, Python 3.10 & 3.11)
+- `CONTRIBUTING.md`, GitHub issue/PR templates, `pyproject.toml` with ruff config
+- `REDIS_URL`, `SESSION_TTL_SECONDS`, `LANGCHAIN_*` settings with `.env.example` entries
+
+### Changed
+- `/status` endpoint now includes tracing status fields
+- `api.py` session management fully delegated to `SessionStore` abstraction
+
+### Tests
+- 386 unit tests total (up from 287)
+- New: LLM loader (17), tracing (16), session store (25), AgentController (16), file reader (25), orchestrator (39), dataset analyzer (39)
+
 ## [v2.2.0] - 2026-03-22
 
 ### Added

@@ -13,7 +13,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     # ─── Project ──────────────────────────────────────────────────────────────
     PROJECT_NAME: str = "Multi-Agent AI System"
-    VERSION: str = "2.0.0"
+    VERSION: str = "2.3.0"
     DEBUG: bool = False
 
     # ─── LLM ──────────────────────────────────────────────────────────────────
