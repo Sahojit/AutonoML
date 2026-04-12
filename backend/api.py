@@ -35,6 +35,7 @@ from agents.base_agent import configure_logging
 from backend.session_store import get_session_store
 from config.settings import settings
 from core.query_router import RouteType, classify_route, get_router
+from core.tracing import get_tracing_status, setup_tracing
 from memory.memory_manager import MemoryManager
 from memory.vector_store import get_vector_store
 from orchestrator.agent_orchestrator import AgentOrchestrator
@@ -74,7 +75,7 @@ def _get_or_create_memory(session_id: str) -> MemoryManager:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Multi-Agent AI System v%s starting…", settings.VERSION)
-    # Warm up the orchestrator (loads LLM + embeddings)
+    setup_tracing()
     _get_orchestrator()
     yield
     logger.info("API shutting down — flushing sessions…")
@@ -186,6 +187,7 @@ async def status() -> Dict[str, Any]:
         "vector_store_docs": doc_count,
         "max_iterations": settings.MAX_AGENT_ITERATIONS,
         "parallel_research": settings.PARALLEL_RESEARCH,
+        **get_tracing_status(),
     }
 
 

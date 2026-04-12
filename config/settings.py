@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     REDIS_URL: Optional[str] = None          # e.g. redis://localhost:6379/0
     SESSION_TTL_SECONDS: int = 3600          # 1 hour; used by Redis backend
 
+    # ─── Tracing (LangSmith) ──────────────────────────────────────────────────
+    LANGCHAIN_TRACING_V2: bool = False       # set True to enable LangSmith
+    LANGCHAIN_API_KEY: Optional[str] = None
+    LANGCHAIN_PROJECT: str = "AutonoML"
+    LANGCHAIN_ENDPOINT: str = "https://api.smith.langchain.com"
+
     # ─── Frontend ─────────────────────────────────────────────────────────────
     FRONTEND_API_URL: str = "http://localhost:8000"
 
