@@ -94,6 +94,25 @@ def _build_vllm(agent_type: str) -> ChatOpenAI:
     )
 
 
+def _build_groq(agent_type: str) -> ChatOpenAI:
+    if not settings.GROQ_API_KEY:
+        raise ValueError("GROQ_API_KEY must be set when LLM_PROVIDER=groq")
+    model = _resolve_model(agent_type)
+    temp  = _resolve_temp(agent_type)
+    logger.info(
+        "Loading Groq LLM:   agent=%-10s  model=%s  temp=%.1f",
+        agent_type, model, temp,
+    )
+    return ChatOpenAI(
+        model=model,
+        base_url=settings.GROQ_BASE_URL,
+        api_key=settings.GROQ_API_KEY,
+        temperature=temp,
+        max_tokens=settings.LLM_MAX_TOKENS,
+        timeout=settings.LLM_TIMEOUT,
+    )
+
+
 def _build_openai(agent_type: str) -> ChatOpenAI:
     if not settings.OPENAI_API_KEY:
         raise ValueError("OPENAI_API_KEY must be set when LLM_PROVIDER=openai")
@@ -131,9 +150,10 @@ def get_llm(agent_type: str = "default") -> Any:
     """
     provider = settings.LLM_PROVIDER.lower()
     builders = {
-        "ollama": _build_ollama,
-        "vllm":   _build_vllm,
-        "openai": _build_openai,
+        "ollama":  _build_ollama,
+        "vllm":    _build_vllm,
+        "openai":  _build_openai,
+        "groq":    _build_groq,
     }
     if provider not in builders:
         raise ValueError(

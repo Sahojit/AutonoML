@@ -1,28 +1,8 @@
-# Render Blueprint — Multi-Agent AI System (no external API keys)
+# Render Blueprint — Multi-Agent AI System (Groq free tier, no paid plans)
 # Deploy: https://dashboard.render.com/blueprints → New Blueprint Instance
-# After deploy, set the 2 env vars marked sync:false (see DEPLOY.md)
+# After deploy, set GROQ_API_KEY in the API service env vars (free at console.groq.com)
 
 services:
-
-  # ── Ollama (local LLM server) ─────────────────────────────────────────────
-  - type: web
-    name: multi-agent-ai-ollama
-    runtime: docker
-    dockerfilePath: ./Dockerfile.ollama
-    dockerContext: .
-    plan: pro                     # llama3.2:3b needs ~3 GB RAM; pro = 4 GB
-    healthCheckPath: /api/version
-    envVars:
-      - key: OLLAMA_MODEL
-        value: llama3.2:3b
-      - key: OLLAMA_NUM_PARALLEL
-        value: "1"
-      - key: OLLAMA_MAX_LOADED_MODELS
-        value: "1"
-    disk:
-      name: ollama-models
-      mountPath: /root/.ollama   # model cached here — survives restarts
-      sizeGB: 5
 
   # ── FastAPI Backend ───────────────────────────────────────────────────────
   - type: web
@@ -30,15 +10,17 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile.api
     dockerContext: .
-    plan: standard               # sentence-transformers needs ~1.5 GB RAM
+    plan: free
     healthCheckPath: /health
     envVars:
       - key: LLM_PROVIDER
-        value: ollama
+        value: groq
       - key: LLM_MODEL
-        value: llama3.2:3b
-      - key: OLLAMA_BASE_URL
-        sync: false              # set to https://multi-agent-ai-ollama.onrender.com after Ollama deploys
+        value: llama3-8b-8192          # fast Groq-hosted llama3
+      - key: GROQ_API_KEY
+        sync: false                    # set after deploy — free at console.groq.com
+      - key: EMBEDDING_MODEL
+        value: all-MiniLM-L6-v2        # ~90 MB — fits in free-tier 512 MB RAM
       - key: EMBEDDING_DEVICE
         value: cpu
       - key: API_HOST
@@ -46,9 +28,9 @@ services:
       - key: API_PORT
         value: "8000"
       - key: CHROMA_PERSIST_DIR
-        value: /data/chroma_db
+        value: /tmp/chroma_db
       - key: SQL_DATABASE_URL
-        value: sqlite:////data/agent_data.db
+        value: sqlite:////tmp/agent_data.db
       - key: LOG_LEVEL
         value: INFO
       - key: MAX_AGENT_ITERATIONS
@@ -63,10 +45,6 @@ services:
         value: "30"
       - key: CORS_ORIGINS
         value: '["*"]'
-    disk:
-      name: agent-data
-      mountPath: /data
-      sizeGB: 1
 
   # ── Streamlit Frontend ────────────────────────────────────────────────────
   - type: web
@@ -74,7 +52,7 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile.frontend
     dockerContext: .
-    plan: starter
+    plan: free
     envVars:
       - key: FRONTEND_API_URL
-        sync: false              # set to https://multi-agent-ai-api.onrender.com after API deploys
+        sync: false                    # set to https://multi-agent-ai-api.onrender.com after API deploys

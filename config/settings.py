@@ -17,11 +17,13 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     # ─── LLM ──────────────────────────────────────────────────────────────────
-    LLM_PROVIDER: str = "ollama"          # "ollama" | "vllm" | "openai"
+    LLM_PROVIDER: str = "ollama"          # "ollama" | "vllm" | "openai" | "groq"
     LLM_MODEL: str = "llama3.2:3b"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     VLLM_BASE_URL: str = "http://localhost:8000"
     OPENAI_API_KEY: Optional[str] = None
+    GROQ_API_KEY: Optional[str] = None
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
     LLM_TEMPERATURE: float = 0.1
     LLM_MAX_TOKENS: int = 2048
     LLM_TIMEOUT: int = 180
