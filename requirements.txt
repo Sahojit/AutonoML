@@ -1,19 +1,20 @@
 # ── Core LLM & LangChain ──────────────────────────────────────────────────────
-langchain>=0.2.16,<0.3
-langchain-community>=0.2.16,<0.3
-langchain-openai>=0.1.23,<0.2
+langchain>=0.3.0
+langchain-community>=0.3.0
+langchain-openai>=0.2.0
 
 # ── LLM Runtimes ──────────────────────────────────────────────────────────────
+langchain-ollama>=0.2.0
 ollama>=0.3.3
 
 # ── Embedding Models ──────────────────────────────────────────────────────────
-langchain-huggingface>=0.3.0
+langchain-huggingface>=0.1.0
 sentence-transformers>=2.7.0
 transformers>=4.40.0
 torch>=2.1.0
 
 # ── Vector Database ───────────────────────────────────────────────────────────
-langchain-chroma>=0.2.0
+langchain-chroma>=0.1.4
 chromadb>=0.5.0
 
 # ── Backend ───────────────────────────────────────────────────────────────────

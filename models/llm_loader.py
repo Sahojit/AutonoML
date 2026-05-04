@@ -21,7 +21,7 @@ import os
 from functools import lru_cache
 from typing import Any
 
-from langchain_community.llms import Ollama
+from langchain_ollama import OllamaLLM as Ollama
 from langchain_openai import ChatOpenAI
 
 from config.settings import settings
