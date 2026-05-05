@@ -76,7 +76,10 @@ def _get_or_create_memory(session_id: str) -> MemoryManager:
 async def lifespan(app: FastAPI):
     logger.info("Multi-Agent AI System v%s starting…", settings.VERSION)
     setup_tracing()
-    _get_orchestrator()
+    try:
+        _get_orchestrator()
+    except Exception as exc:
+        logger.warning("Orchestrator warm-up skipped: %s — will init on first request", exc)
     yield
     logger.info("API shutting down — flushing sessions…")
     _thread_pool.shutdown(wait=False)
