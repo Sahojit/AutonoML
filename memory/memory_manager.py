@@ -15,7 +15,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from langchain.docstore.document import Document
+from langchain_core.documents import Document
 
 from config.settings import settings
 from memory.vector_store import get_vector_store

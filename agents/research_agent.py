@@ -17,8 +17,8 @@ import logging
 import time
 from typing import List
 
-from langchain.docstore.document import Document
-from langchain.prompts import PromptTemplate
+from langchain_core.documents import Document
+from langchain_core.prompts import PromptTemplate
 
 from agents.base_agent import AgentMessage, BaseAgent
 from config.settings import settings

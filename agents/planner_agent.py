@@ -26,7 +26,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
-from langchain.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate
 
 from agents.base_agent import AgentMessage, BaseAgent
 from config.settings import settings

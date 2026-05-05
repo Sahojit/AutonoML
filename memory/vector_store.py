@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
-from langchain.docstore.document import Document
+from langchain_core.documents import Document
 from langchain_chroma import Chroma
 
 from config.settings import settings

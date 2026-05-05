@@ -4,7 +4,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from unittest.mock import MagicMock
-from langchain.docstore.document import Document
+from langchain_core.documents import Document
 import pytest
 
 from memory.memory_manager import AgentContext, MemoryManager

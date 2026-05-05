@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from unittest.mock import MagicMock, patch
 
 import pytest
-from langchain.docstore.document import Document
+from langchain_core.documents import Document
 
 from memory.memory_manager import MemoryManager, AgentContext, Message
 
@@ -170,7 +170,7 @@ class TestReflectionMemory:
 
     def test_retrieve_reflections_returns_list(self, memory):
         mem, mock_vs = memory
-        from langchain.docstore.document import Document
+        from langchain_core.documents import Document
         mock_vs.similarity_search.return_value = [
             Document(
                 page_content="[REFLECTION]\nTask: train\nError: NaN\nSuggestion: clean data",

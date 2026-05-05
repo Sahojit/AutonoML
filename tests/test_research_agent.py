@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from unittest.mock import MagicMock, patch
 
 import pytest
-from langchain.docstore.document import Document
+from langchain_core.documents import Document
 
 from agents.research_agent import ResearchAgent
 from agents.base_agent import AgentMessage

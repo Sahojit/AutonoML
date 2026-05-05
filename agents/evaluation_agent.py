@@ -34,7 +34,7 @@ import time
 from dataclasses import dataclass, field
 from typing import List, Literal, Optional, Tuple
 
-from langchain.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate
 
 from agents.base_agent import AgentMessage, BaseAgent
 from memory.memory_manager import MemoryManager
